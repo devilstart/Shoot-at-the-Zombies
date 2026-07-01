@@ -13,7 +13,7 @@ import argparse
 import json
 from pynput import keyboard
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, scrolledtext
 import threading
 
 SKILL_LIST = [
@@ -261,7 +261,7 @@ class GameBot:
 
         pyautogui.moveTo(x, y, duration=duration)
         pyautogui.click()
-        print(f"点击位置: ({x}, {y})")
+        # print(f"点击位置: ({x}, {y})")
 
     def click_fast(self, x, y):
         """快速点击，使用win32api直接发送鼠标事件"""
@@ -954,6 +954,43 @@ class GameBot:
             # timestamp = time.time()
 
 
+class OutputRedirector:
+    """将print输出重定向到Tkinter文本控件"""
+
+    def __init__(self, text_widget, max_lines=100):
+        self.text_widget = text_widget
+        self.max_lines = max_lines
+        self._queue = []
+        self._lock = threading.Lock()
+
+    def write(self, text):
+        if self.text_widget and self.text_widget.winfo_exists():
+            with self._lock:
+                self._queue.append(text)
+            # 使用after确保在主线程更新GUI
+            self.text_widget.after(0, self._flush)
+
+    def _flush(self):
+        with self._lock:
+            lines = self._queue[:]
+            self._queue.clear()
+
+        for text in lines:
+            self.text_widget.insert(tk.END, text)
+            self.text_widget.see(tk.END)
+
+        # 限制最大行数
+        current_lines = int(self.text_widget.index(tk.END).split('.')[0]) - 1
+        if current_lines > self.max_lines:
+            self.text_widget.delete('1.0', f'{current_lines - self.max_lines}.0')
+
+    def flush(self):
+        pass
+
+    def isatty(self):
+        return False
+
+
 class GameBotGUI:
     CONFIG_FILE = "config.json"
 
@@ -961,7 +998,7 @@ class GameBotGUI:
         self.root = root
         self.root.title("游戏机器人操作界面")
         self.root.geometry("600x800")
-        self.root.resizable(False, False)
+        self.root.resizable(True, True)
 
         self.bot = None
         self.is_running = False
@@ -971,6 +1008,9 @@ class GameBotGUI:
 
         # 加载保存的配置
         self.load_config()
+
+        # 重定向print输出到控制台
+        self._redirect_output()
 
     def get_skill_template_by_name(self, name):
         """根据技能名称获取模板文件名列表"""
@@ -985,11 +1025,32 @@ class GameBotGUI:
             if os.path.exists(self.CONFIG_FILE):
                 with open(self.CONFIG_FILE, "r", encoding="utf-8") as f:
                     config = json.load(f)
+                    # 加载游戏窗口标题
+                    game_title = config.get("game_title", "向僵尸开炮")
+                    self.game_title_var.set(game_title)
+                    # 加载模式
+                    mode = config.get("mode", "环球")
+                    if mode in ["环球", "主线", "普通远征", "超级远征"]:
+                        self.mode_var.set(mode)
+                    # 加载消费模式
+                    rich_mode = config.get("rich_mode", 0)
+                    self.rich_mode_var.set(rich_mode)
+                    # 加载秒退模式
+                    quick_exit = config.get("quick_exit", False)
+                    self.quick_exit_var.set(quick_exit)
+                    # 加载战斗次数
+                    max_battle_count = config.get("max_battle_count", 0)
+                    self.max_battle_count_var.set(max_battle_count)
+                    # 加载战斗时间
+                    battle_time = config.get("battle_time", 0)
+                    self.battle_time_var.set(battle_time)
                     # 加载优先技能配置
                     priority_skills = config.get("priority_skills", [])
                     for i, skill_name in enumerate(priority_skills):
                         if i < len(self.priority_skill_vars):
                             self.priority_skill_vars[i].set(skill_name)
+                    # 触发模式变化更新显示
+                    self.on_mode_changed(None)
         except Exception as e:
             print(f"加载配置失败: {e}")
 
@@ -997,6 +1058,12 @@ class GameBotGUI:
         """保存当前配置"""
         try:
             config = {
+                "game_title": self.game_title_var.get(),
+                "mode": self.mode_var.get(),
+                "rich_mode": self.rich_mode_var.get(),
+                "quick_exit": self.quick_exit_var.get(),
+                "max_battle_count": self.max_battle_count_var.get(),
+                "battle_time": self.battle_time_var.get(),
                 "priority_skills": [var.get() for var in self.priority_skill_vars]
             }
             with open(self.CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -1163,6 +1230,16 @@ class GameBotGUI:
             row=14, column=0, columnspan=3, padx=10, pady=5, sticky=tk.W
         )
 
+        # 控制台输出区域
+        console_frame = ttk.LabelFrame(self.root, text="控制台输出")
+        console_frame.grid(row=15, column=0, columnspan=3, padx=10, pady=10, sticky=tk.W + tk.E + tk.N + tk.S)
+        self.root.grid_rowconfigure(15, minsize=150)
+
+        self.console_text = scrolledtext.ScrolledText(
+            console_frame, width=70, height=8, state=tk.NORMAL, wrap=tk.WORD
+        )
+        self.console_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
     def on_skill_selected(self, event):
         """技能选择事件，防止重复选择"""
         # 获取所有已选择的技能
@@ -1183,6 +1260,11 @@ class GameBotGUI:
     def _update_battle_count(self, count):
         """更新战斗次数显示（线程安全）"""
         self.root.after(0, lambda: self.battle_count_var.set(f"战斗次数: {count}"))
+
+    def _redirect_output(self):
+        """重定向print输出到控制台文本框"""
+        self._stdout_redirector = OutputRedirector(self.console_text, max_lines=100)
+        sys.stdout = self._stdout_redirector
 
     def on_mode_changed(self, event):
         """模式选择事件，控制土豪/穷B单选框和秒退选项显示"""
@@ -1327,6 +1409,9 @@ class GameBotGUI:
         """退出应用程序"""
         if self.bot:
             self.bot.running = False
+        # 恢复标准输出
+        if hasattr(self, '_stdout_redirector'):
+            sys.stdout = sys.__stdout__
         self.root.quit()
 
 
