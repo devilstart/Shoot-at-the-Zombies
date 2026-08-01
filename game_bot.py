@@ -360,6 +360,9 @@ class GameBot:
                                 self.click(*leave_button)
                                 time.sleep(0.04)
                                 self.find_click_sure()
+                        # 不打深渊
+                        if self.find_double_abyss():
+                            self.find_click_dont_battle_return()
                         # print("未找到环球按钮")
                         # time.sleep(0.1)  # 减少等待时间
                 except:
@@ -717,6 +720,14 @@ class GameBot:
         """判断能否点击智库按钮"""
         self.click_template("think_tank.png")
 
+    def find_double_abyss(self):
+        """判断能否发现双深渊按钮"""
+        double_abyss_icon = ["double-abyss.png"]
+        for icon in double_abyss_icon:
+            double_abyss = self.find_template(icon)
+            if double_abyss:
+                return double_abyss
+        return None
     def expedition_in_team(self, in_expedition):
         """判断是否在远征团队中"""
         if not in_expedition:
