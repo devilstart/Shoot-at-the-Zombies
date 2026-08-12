@@ -31,7 +31,6 @@ SKILL_LIST = [
     {"name": "无人机冲击", "template": ["skill-wrj.png", "skill-wrj-1.png"]},
     {"name": "跃迁电子", "template": ["skill-yq.png", "skill-yq-1.png"]},
     {"name": "空投轰炸", "template": ["skill-kt.png", "skill-kt-1.png"]},
-    {"name": "生化矩阵", "template": ["skill-jz.png", "skill-jz-1.png"]},
 ]
 
 
